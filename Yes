@@ -1,0 +1,1044 @@
+-- Auto Farm 🎃 v3 (Fast Mode + Auto Piñata + Teleport Mode) | LocalScript (TSB)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local UIS = UserInputService
+
+-- ========== UI CONFIG ==========
+local WIN_W    = 280
+local WIN_H    = 340
+local BTN_H    = 32
+local PAD      = 12
+local FONT     = 12
+local GAP      = 6
+local WIN_POS  = UDim2.new(0.5, -WIN_W/2, 0.1, 0)
+
+local THEME = {
+    BG = Color3.fromRGB(12, 12, 18),
+    BG2 = Color3.fromRGB(20, 20, 30),
+    SURFACE = Color3.fromRGB(30, 30, 45),
+    SURFACE2 = Color3.fromRGB(40, 40, 60),
+    BORDER = Color3.fromRGB(70, 70, 100),
+    ACCENT = Color3.fromRGB(147, 51, 234),
+    ACCENT2 = Color3.fromRGB(236, 72, 153),
+    TEXT = Color3.fromRGB(240, 240, 255),
+    MUTED = Color3.fromRGB(140, 140, 170),
+    SUCCESS = Color3.fromRGB(34, 197, 94),
+    SUCCESS_BG = Color3.fromRGB(10, 50, 25),
+    DANGER = Color3.fromRGB(239, 68, 68),
+    DANGER_BG = Color3.fromRGB(50, 10, 15),
+    PINATA = Color3.fromRGB(255, 140, 0),
+    TP_MODE = Color3.fromRGB(80, 140, 255),
+}
+
+-- ========== SCRIPT CONFIG ==========
+local FARM_ENABLED = false
+local CANDY_ENABLED = false
+local PINATA_ENABLED = false
+local FAST_MODE_ENABLED = false
+local FARMING_MODE = "Tween"
+local TWEEN_SPEED = 100 
+local INTERACT_DISTANCE = 3
+local WAIT_AT_DOOR = 0.5 
+local COOLDOWN_DURATION = 0.1
+local AIR_HEIGHT = 40 
+local TP_SKY_HEIGHT = 500
+local TP_PLATFORM_SIZE = 20
+local TP_STAY_AT_DOOR = 1
+local TP_POST_CHANGE_WAIT = 2
+local CANDY_TOUCH_WAIT = 0.1
+local MIN_SAFE_Y = -10 
+local CHAMS_COLOR = Color3.fromRGB(255, 50, 50)
+local CANDY_CHAMS_COLOR = Color3.fromRGB(255, 255, 0)
+local PINATA_CHAMS_COLOR = Color3.fromRGB(255, 140, 0)
+local PINATA_BELOW_DISTANCE = 5
+
+-- ========== FAST MODE STORAGE ==========
+local hiddenHalloweenModel, hiddenHalloweenParent = nil, nil
+local removedTextures = {}
+local savedLighting = nil
+local removedSky, removedSkyParent = nil, nil
+
+-- ========== CHAMS SYSTEM ==========
+local activeChams = {}
+local function clearAllChams()
+    for _, cham in pairs(activeChams) do
+        if cham and cham.Parent then cham:Destroy() end
+    end
+    activeChams = {}
+end
+local function applyChams(instance, index, color)
+    if not instance then return end
+    if not activeChams[index] or not activeChams[index].Parent then
+        local h = Instance.new("Highlight")
+        h.Name = "TargetCham"
+        h.FillColor = color or CHAMS_COLOR
+        h.FillTransparency = 0.5
+        h.OutlineColor = Color3.fromRGB(255, 255, 255)
+        h.Adornee = instance
+        h.Parent = instance
+        activeChams[index] = h
+    end
+end
+
+-- ========== FAST MODE LOGIC ==========
+local function applyFastMode()
+    if FAST_MODE_ENABLED then return end
+    FAST_MODE_ENABLED = true
+    local map = workspace:FindFirstChild("Map")
+    local halloween = map and map:FindFirstChild("Halloween")
+    if halloween then
+        hiddenHalloweenModel = halloween
+        hiddenHalloweenParent = halloween.Parent
+        halloween.Parent = nil
+    end
+    removedTextures = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Texture") or obj:IsA("Decal") or obj:IsA("ForceField") then
+            if obj.Parent then
+                removedTextures[obj] = { Parent = obj.Parent }
+                obj.Parent = nil
+            end
+        end
+    end
+    savedLighting = {
+        ClockTime = Lighting.ClockTime, Brightness = Lighting.Brightness,
+        Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+        FogColor = Lighting.FogColor, FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart,
+        GlobalShadows = Lighting.GlobalShadows,
+        EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
+        EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
+    }
+    pcall(function()
+        Lighting.ClockTime = 14
+        Lighting.Brightness = 2
+        Lighting.Ambient = Color3.fromRGB(150,150,150)
+        Lighting.OutdoorAmbient = Color3.fromRGB(150,150,150)
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 100000
+        Lighting.GlobalShadows = true
+        Lighting.EnvironmentDiffuseScale = 1
+        Lighting.EnvironmentSpecularScale = 1
+    end)
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if sky then
+        removedSky = sky; removedSkyParent = sky.Parent; sky.Parent = nil
+    end
+end
+
+local function removeFastMode()
+    if not FAST_MODE_ENABLED then return end
+    FAST_MODE_ENABLED = false
+    if hiddenHalloweenModel and hiddenHalloweenParent then
+        hiddenHalloweenModel.Parent = hiddenHalloweenParent
+        hiddenHalloweenModel = nil; hiddenHalloweenParent = nil
+    end
+    for obj, data in pairs(removedTextures) do
+        if obj and data.Parent then pcall(function() obj.Parent = data.Parent end) end
+    end
+    removedTextures = {}
+    if savedLighting then
+        pcall(function()
+            Lighting.ClockTime = savedLighting.ClockTime
+            Lighting.Brightness = savedLighting.Brightness
+            Lighting.Ambient = savedLighting.Ambient
+            Lighting.OutdoorAmbient = savedLighting.OutdoorAmbient
+            Lighting.FogColor = savedLighting.FogColor
+            Lighting.FogEnd = savedLighting.FogEnd
+            Lighting.FogStart = savedLighting.FogStart
+            Lighting.GlobalShadows = savedLighting.GlobalShadows
+            Lighting.EnvironmentDiffuseScale = savedLighting.EnvironmentDiffuseScale
+            Lighting.EnvironmentSpecularScale = savedLighting.EnvironmentSpecularScale
+        end)
+        savedLighting = nil
+    end
+    if removedSky and removedSkyParent then
+        pcall(function() removedSky.Parent = removedSkyParent end)
+        removedSky = nil; removedSkyParent = nil
+    end
+end
+
+-- ========== NOCLIP ==========
+local noclipConnection = nil
+local function setNoclip(enabled)
+    if enabled then
+        if not noclipConnection then
+            noclipConnection = RunService.Stepped:Connect(function()
+                if not FARM_ENABLED and not CANDY_ENABLED and not PINATA_ENABLED then return end
+                local character = LocalPlayer.Character
+                if character then
+                    for _, part in ipairs(character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = (part.Name == "HumanoidRootPart")
+                        end
+                    end
+                end
+            end)
+        end
+    else
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+            local character = LocalPlayer.Character
+            if character then
+                for _, part in ipairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = true end
+                end
+            end
+        end
+    end
+end
+
+-- ========== DEATH & RESPAWN ==========
+local isDead = false
+local function setupDeathListener(char)
+    local hum = char:WaitForChild("Humanoid", 10)
+    if not hum then return end
+    hum.Died:Connect(function()
+        if FARM_ENABLED or CANDY_ENABLED or PINATA_ENABLED then
+            isDead = true
+            clearAllChams()
+            if _G.setStatus then _G.setStatus("Died! Respawning...", THEME.DANGER) end
+            local c = LocalPlayer.Character
+            local h = c and c:FindFirstChildOfClass("Humanoid")
+            if h then pcall(function() h.PlatformStand = false; h:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
+        end
+    end)
+end
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid")
+    task.wait(0.5)
+    setupDeathListener(char)
+    if FARM_ENABLED or CANDY_ENABLED or PINATA_ENABLED then setNoclip(true) end
+    if isDead and (FARM_ENABLED or CANDY_ENABLED or PINATA_ENABLED) then
+        isDead = false
+        if _G.setStatus then _G.setStatus("Respawned! Resuming...", THEME.SUCCESS) end
+    end
+end)
+if LocalPlayer.Character then task.spawn(setupDeathListener, LocalPlayer.Character) end
+
+-- ========== UI HELPERS ==========
+local function getParent()
+    local ok, hui = pcall(function() return gethui and gethui() end)
+    if ok and hui then return hui end
+    local ok2, core = pcall(function() return game:GetService("CoreGui") end)
+    if ok2 and core then return core end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+local old = getParent():FindFirstChild("AutoFarmGui")
+if old then old:Destroy() end
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoFarmGui"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = getParent()
+
+local function corner(obj, r)
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 8); c.Parent = obj
+end
+local function stroke(obj, color, thickness)
+    local s = Instance.new("UIStroke"); s.Color = color or THEME.BORDER
+    s.Thickness = thickness or 1; s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; s.Parent = obj
+end
+local function gradient(obj, c1, c2, rot)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(c1, c2)
+    g.Rotation = rot or 90
+    g.Parent = obj
+    return g
+end
+
+-- ========== MAIN PANEL ==========
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.new(0, WIN_W, 0, WIN_H)
+main.Position = WIN_POS
+main.BackgroundColor3 = THEME.BG
+main.BorderSizePixel = 0
+main.Active = true
+main.Parent = gui
+corner(main, 14)
+stroke(main, THEME.ACCENT, 1.5)
+gradient(main, Color3.fromRGB(25, 15, 40), Color3.fromRGB(12, 12, 18), 135)
+
+local topGlow = Instance.new("Frame")
+topGlow.Size = UDim2.new(1, -24, 0, 3)
+topGlow.Position = UDim2.new(0, 12, 0, 0)
+topGlow.BackgroundColor3 = THEME.ACCENT
+topGlow.BorderSizePixel = 0
+topGlow.ZIndex = 5
+topGlow.Parent = main
+corner(topGlow, 2)
+gradient(topGlow, THEME.ACCENT, THEME.ACCENT2, 0)
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 36)
+titleBar.Position = UDim2.new(0, 0, 0, 4)
+titleBar.BackgroundTransparency = 1
+titleBar.Parent = main
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -70, 0, 30)
+title.Position = UDim2.new(0, 14, 0, 3)
+title.BackgroundTransparency = 1
+title.Text = "🎃  Auto Farm v3"
+title.TextColor3 = THEME.TEXT
+title.Font = Enum.Font.GothamBlack
+title.TextSize = 15
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = titleBar
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 24, 0, 24)
+minBtn.Position = UDim2.new(1, -32, 0, 6)
+minBtn.BackgroundColor3 = THEME.SURFACE
+minBtn.TextColor3 = THEME.TEXT
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 14
+minBtn.Text = "-"
+minBtn.AutoButtonColor = false
+minBtn.Parent = titleBar
+corner(minBtn, 6)
+stroke(minBtn, THEME.BORDER, 1)
+
+local body = Instance.new("Frame")
+body.Size = UDim2.new(1, -PAD*2, 1, -50)
+body.Position = UDim2.new(0, PAD, 0, 44)
+body.BackgroundTransparency = 1
+body.Parent = main
+
+local rowY = 0
+local function nextRow(h)
+    local y = rowY
+    rowY = rowY + h + GAP
+    return y
+end
+
+local function makeCoolButton(parent, text, size, pos, accentColor)
+    local b = Instance.new("TextButton")
+    b.Size = size
+    b.Position = pos
+    b.BackgroundColor3 = THEME.SURFACE
+    b.TextColor3 = THEME.TEXT
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = FONT
+    b.Text = text
+    b.AutoButtonColor = false
+    b.Parent = parent
+    corner(b, 8)
+    stroke(b, THEME.BORDER, 1)
+    gradient(b, THEME.SURFACE2, THEME.SURFACE, 90)
+    b.MouseEnter:Connect(function()
+        TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = THEME.SURFACE2}):Play()
+        local s = b:FindFirstChildOfClass("UIStroke")
+        if s then TweenService:Create(s, TweenInfo.new(0.15), {Color = accentColor or THEME.ACCENT}):Play() end
+    end)
+    b.MouseLeave:Connect(function()
+        TweenService:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = THEME.SURFACE}):Play()
+        local s = b:FindFirstChildOfClass("UIStroke")
+        if s then TweenService:Create(s, TweenInfo.new(0.15), {Color = THEME.BORDER}):Play() end
+    end)
+    return b
+end
+
+local function setButtonState(btn, on)
+    local g = btn:FindFirstChildOfClass("UIGradient")
+    if g then
+        if on then
+            g.Color = ColorSequence.new(Color3.fromRGB(120, 255, 180), Color3.fromRGB(40, 220, 110))
+            btn.BackgroundColor3 = Color3.fromRGB(80, 240, 140)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            g.Color = ColorSequence.new(Color3.fromRGB(95, 65, 80), Color3.fromRGB(70, 50, 65))
+            btn.BackgroundColor3 = Color3.fromRGB(80, 55, 70)
+            btn.TextColor3 = Color3.fromRGB(240, 230, 235)
+        end
+    end
+    local s = btn:FindFirstChildOfClass("UIStroke")
+    if s then
+        s.Color = on and Color3.fromRGB(200, 255, 220) or Color3.fromRGB(190, 130, 145)
+        s.Thickness = on and 2.5 or 1
+    end
+end
+
+local toggleBtn = makeCoolButton(body, "◉  AUTO FARM: OFF", UDim2.new(1, 0, 0, BTN_H + 2), UDim2.new(0, 0, 0, nextRow(BTN_H + 2)), THEME.SUCCESS)
+setButtonState(toggleBtn, false)
+
+local candyBtn = makeCoolButton(body, "◉  AUTO CANDY: OFF", UDim2.new(1, 0, 0, BTN_H + 2), UDim2.new(0, 0, 0, nextRow(BTN_H + 2)), THEME.SUCCESS)
+setButtonState(candyBtn, false)
+
+local pinataBtn = makeCoolButton(body, "◉  AUTO PIÑATA: OFF", UDim2.new(1, 0, 0, BTN_H + 2), UDim2.new(0, 0, 0, nextRow(BTN_H + 2)), THEME.PINATA)
+setButtonState(pinataBtn, false)
+
+local fastBtn = makeCoolButton(body, "⚡  FAST MODE", UDim2.new(1, 0, 0, BTN_H), UDim2.new(0, 0, 0, nextRow(BTN_H)), THEME.ACCENT2)
+local modeBtn = makeCoolButton(body, "🎯  MODE: TWEEN", UDim2.new(1, 0, 0, BTN_H), UDim2.new(0, 0, 0, nextRow(BTN_H)), THEME.TP_MODE)
+
+local statusContainer = Instance.new("Frame")
+statusContainer.Size = UDim2.new(1, 0, 0, 20)
+statusContainer.Position = UDim2.new(0, 0, 0, nextRow(20))
+statusContainer.BackgroundColor3 = THEME.BG2
+statusContainer.BorderSizePixel = 0
+statusContainer.Parent = body
+corner(statusContainer, 6)
+stroke(statusContainer, THEME.BORDER, 1)
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -16, 1, 0)
+status.Position = UDim2.new(0, 8, 0, 0)
+status.BackgroundTransparency = 1
+status.Text = "● Idle"
+status.TextColor3 = THEME.MUTED
+status.Font = Enum.Font.GothamSemibold
+status.TextSize = 10
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.Parent = statusContainer
+
+_G.setStatus = function(text, color)
+    status.Text = "● " .. text
+    status.TextColor3 = color or THEME.MUTED
+end
+
+local speedHeader = Instance.new("TextLabel")
+speedHeader.Size = UDim2.new(1, 0, 0, 14)
+speedHeader.Position = UDim2.new(0, 2, 0, nextRow(14))
+speedHeader.BackgroundTransparency = 1
+speedHeader.Text = "⚙  SPEED"
+speedHeader.TextColor3 = THEME.MUTED
+speedHeader.Font = Enum.Font.GothamBold
+speedHeader.TextSize = 10
+speedHeader.TextXAlignment = Enum.TextXAlignment.Left
+speedHeader.Parent = body
+
+local speedRowY = nextRow(26)
+local minusBtn = makeCoolButton(body, "−", UDim2.new(0, 34, 0, 26), UDim2.new(0, 0, 0, speedRowY), THEME.ACCENT)
+minusBtn.TextSize = 16
+local plusBtn = makeCoolButton(body, "+", UDim2.new(0, 34, 0, 26), UDim2.new(1, -34, 0, speedRowY), THEME.ACCENT)
+plusBtn.TextSize = 16
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1, -80, 0, 26)
+speedLabel.Position = UDim2.new(0, 40, 0, speedRowY)
+speedLabel.BackgroundColor3 = THEME.BG2
+speedLabel.Text = tostring(TWEEN_SPEED)
+speedLabel.TextColor3 = THEME.ACCENT2
+speedLabel.Font = Enum.Font.GothamBlack
+speedLabel.TextSize = 14
+speedLabel.Parent = body
+corner(speedLabel, 6)
+stroke(speedLabel, THEME.BORDER, 1)
+
+-- ========== DRAGGING ==========
+do
+    local dragging, dragStart, startPos
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true; dragStart = input.Position; startPos = main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+            local d = input.Position - dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+end
+
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    body.Visible = not minimized
+    main.Size = minimized and UDim2.new(0, WIN_W, 0, 40) or UDim2.new(0, WIN_W, 0, WIN_H)
+    minBtn.Text = minimized and "+" or "-"
+end)
+
+local function updateSpeedDisplay()
+    speedLabel.Text = tostring(TWEEN_SPEED)
+end
+minusBtn.MouseButton1Click:Connect(function()
+    TWEEN_SPEED = math.max(10, TWEEN_SPEED - 5); updateSpeedDisplay()
+end)
+plusBtn.MouseButton1Click:Connect(function()
+    TWEEN_SPEED = math.min(200, TWEEN_SPEED + 5); updateSpeedDisplay()
+end)
+fastBtn.MouseButton1Click:Connect(function()
+    if FAST_MODE_ENABLED then
+        removeFastMode()
+        fastBtn.Text = "⚡  FAST MODE"
+        local s = fastBtn:FindFirstChildOfClass("UIStroke"); if s then s.Color = THEME.BORDER end
+    else
+        applyFastMode()
+        fastBtn.Text = "⚡  FAST MODE: ON"
+        local s = fastBtn:FindFirstChildOfClass("UIStroke"); if s then s.Color = THEME.SUCCESS end
+    end
+end)
+
+modeBtn.MouseButton1Click:Connect(function()
+    if FARMING_MODE == "Tween" then
+        FARMING_MODE = "Teleport"
+        modeBtn.Text = "🎯  MODE: TELEPORT"
+        local s = modeBtn:FindFirstChildOfClass("UIStroke"); if s then s.Color = THEME.TP_MODE end
+    else
+        FARMING_MODE = "Tween"
+        modeBtn.Text = "🎯  MODE: TWEEN"
+        local s = modeBtn:FindFirstChildOfClass("UIStroke"); if s then s.Color = THEME.BORDER end
+    end
+end)
+
+-- ========== SKY PLATFORM ==========
+local skyPlatform = nil
+local function getMapCenter()
+    local center = Vector3.new(0, 0, 0)
+    local map = workspace:FindFirstChild("Map")
+    if map then
+        local parts = {}
+        for _, d in ipairs(map:GetDescendants()) do
+            if d:IsA("BasePart") and d.Position.Y > MIN_SAFE_Y then
+                table.insert(parts, d.Position)
+            end
+        end
+        if #parts > 0 then
+            local sum = Vector3.zero
+            for _, p in ipairs(parts) do sum = sum + p end
+            center = sum / #parts
+        end
+    else
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then center = Vector3.new(hrp.Position.X, 0, hrp.Position.Z) end
+    end
+    return center
+end
+
+local function ensureSkyPlatform()
+    if skyPlatform and skyPlatform.Parent then return skyPlatform end
+    local center = getMapCenter()
+    local plat = Instance.new("Part")
+    plat.Name = "AutoFarmSkyPlatform"
+    plat.Anchored = true
+    plat.CanCollide = true
+    plat.Size = Vector3.new(TP_PLATFORM_SIZE, 1, TP_PLATFORM_SIZE)
+    plat.Position = Vector3.new(center.X, center.Y + TP_SKY_HEIGHT, center.Z)
+    plat.Material = Enum.Material.Neon
+    plat.Color = Color3.fromRGB(80, 140, 255)
+    plat.Transparency = 0.3
+    plat.TopSurface = Enum.SurfaceType.Smooth
+    plat.BottomSurface = Enum.SurfaceType.Smooth
+    plat.Parent = workspace
+    skyPlatform = plat
+    return plat
+end
+
+local function removeSkyPlatform()
+    if skyPlatform then skyPlatform:Destroy(); skyPlatform = nil end
+end
+
+local function getSkyPlatformCFrame()
+    local plat = ensureSkyPlatform()
+    if not plat then return nil end
+    return plat.CFrame + Vector3.new(0, 3, 0)
+end
+
+-- ========== PLATFORM LOCK ==========
+local platformLockCFrame = nil
+local platformLockConnection = nil
+local function startPlatformLock(cf)
+    platformLockCFrame = cf
+    if platformLockConnection then return end
+    platformLockConnection = RunService.Heartbeat:Connect(function()
+        if not platformLockCFrame then return end
+        if not FARM_ENABLED or FARMING_MODE ~= "Teleport" then return end
+        if PINATA_ENABLED or CANDY_ENABLED then return end
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = platformLockCFrame
+        end
+    end)
+end
+local function stopPlatformLock()
+    platformLockCFrame = nil
+    if platformLockConnection then platformLockConnection:Disconnect(); platformLockConnection = nil end
+end
+
+-- ========== TWEENING ==========
+local currentTween = nil
+local function forceTweenTo(destinationCFrame, durationOverride)
+    if not FARM_ENABLED and not CANDY_ENABLED then return end
+    if destinationCFrame.Position.Y < MIN_SAFE_Y then return end
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildWhichIsA("Humanoid")
+    if not rootPart or not humanoid then return end
+    local duration = durationOverride
+    if not duration then
+        local distance = (rootPart.Position - destinationCFrame.Position).Magnitude
+        duration = math.max(0.05, distance / TWEEN_SPEED)
+    end
+    if currentTween then currentTween:Cancel() end
+    currentTween = TweenService:Create(rootPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = destinationCFrame})
+    pcall(function() humanoid.PlatformStand = false; humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+    local forceConnection
+    forceConnection = RunService.Heartbeat:Connect(function()
+        if not FARM_ENABLED and not CANDY_ENABLED then
+            if forceConnection then forceConnection:Disconnect() end
+            return
+        end
+        if character and rootPart and humanoid then
+            rootPart.AssemblyLinearVelocity = Vector3.zero
+            rootPart.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
+    currentTween:Play()
+    currentTween.Completed:Wait()
+    if forceConnection then forceConnection:Disconnect() end
+end
+
+-- ========== INSTANT TELEPORT ==========
+local function instantTeleportTo(destinationCFrame)
+    if destinationCFrame.Position.Y < MIN_SAFE_Y then return end
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildWhichIsA("Humanoid")
+    if not rootPart or not humanoid then return end
+    pcall(function() character:PivotTo(destinationCFrame) end)
+    rootPart.CFrame = destinationCFrame
+    rootPart.AssemblyLinearVelocity = Vector3.zero
+    rootPart.AssemblyAngularVelocity = Vector3.zero
+    pcall(function() humanoid.PlatformStand = false; humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+end
+
+-- ========== DOOR TARGET FINDERS ==========
+local function getAllDoorTargets()
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return {} end
+    local list = {}
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("ProximityPrompt") then
+            local parentObj = v.Parent
+            local isHalloween = v.ObjectText:lower():match("trick") or v.ActionText:lower():match("treat") or parentObj.Name:lower():match("halloween")
+            if isHalloween then
+                local interactablePart = parentObj:IsA("BasePart") and parentObj or parentObj:FindFirstChildWhichIsA("BasePart")
+                if interactablePart and interactablePart.Position.Y > MIN_SAFE_Y then
+                    table.insert(list, {
+                        part = interactablePart, prompt = v, model = parentObj,
+                        dist = (rootPart.Position - interactablePart.Position).Magnitude,
+                    })
+                end
+            end
+        end
+    end
+    return list
+end
+
+local function findDoorTarget()
+    local list = getAllDoorTargets()
+    local chosen = nil
+    for _, d in ipairs(list) do
+        if not chosen or d.dist < chosen.dist then chosen = d end
+    end
+    if chosen then return chosen.part, chosen.prompt, chosen.model end
+    return nil, nil, nil
+end
+
+local function findFarthestDoorTarget(excludePart)
+    local list = getAllDoorTargets()
+    local chosen = nil
+    for _, d in ipairs(list) do
+        if not (excludePart and d.part == excludePart) then
+            if not chosen or d.dist > chosen.dist then chosen = d end
+        end
+    end
+    if chosen then return chosen.part, chosen.prompt, chosen.model end
+    return nil, nil, nil
+end
+
+-- ========== CANDY TARGET ==========
+local function findCandyTarget()
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return nil, nil, 0 end
+    local chosenPart, chosenPrompt, closestDistance, totalCandyFound = nil, nil, math.huge, 0
+    local function scanContainer(container)
+        if not container or not container:IsDescendantOf(workspace) then return end
+        for _, v in ipairs(container:GetDescendants()) do
+            if v:IsDescendantOf(workspace) then
+                local isPrompt = v:IsA("ProximityPrompt")
+                local interactablePart = v:IsA("BasePart") and v or (isPrompt and v.Parent:FindFirstChildWhichIsA("BasePart"))
+                local clickDetector = v:IsA("ClickDetector")
+                if interactablePart then
+                    totalCandyFound = totalCandyFound + 1
+                    local dist = (rootPart.Position - interactablePart.Position).Magnitude
+                    if dist < closestDistance and interactablePart.Position.Y > MIN_SAFE_Y then
+                        closestDistance = dist; chosenPart = interactablePart
+                        if isPrompt then chosenPrompt = v end
+                    end
+                elseif clickDetector and clickDetector.Parent:IsA("BasePart") then
+                    totalCandyFound = totalCandyFound + 1
+                    local dist = (rootPart.Position - clickDetector.Parent.Position).Magnitude
+                    if dist < closestDistance and clickDetector.Parent.Position.Y > MIN_SAFE_Y then
+                        closestDistance = dist; chosenPart = clickDetector.Parent; chosenPrompt = clickDetector
+                    end
+                end
+            end
+        end
+    end
+    scanContainer(workspace:FindFirstChild("CandyVisuals"))
+    scanContainer(workspace:FindFirstChild("HalloweenCandy"))
+    scanContainer(workspace:FindFirstChild("CandyRainFX"))
+    return chosenPart, chosenPrompt, totalCandyFound
+end
+
+-- ========== CANDY COLLECT (0.1s TOUCH) ==========
+local function collectAllCandy()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    local originalPos = root.CFrame
+    local foundAnyCandy = false
+    while CANDY_ENABLED do
+        if isDead then break end
+        local currentTarget, currentPrompt, candyCount = findCandyTarget()
+        if candyCount == 0 or not currentTarget then break end
+        foundAnyCandy = true
+        clearAllChams()
+        applyChams(currentTarget, 1, CANDY_CHAMS_COLOR)
+        local candyTouchCFrame = CFrame.new(currentTarget.Position + Vector3.new(0, 2, 0))
+        if _G.setStatus then _G.setStatus("Candy Grab (" .. candyCount .. ")", CANDY_CHAMS_COLOR) end
+        instantTeleportTo(candyTouchCFrame)
+        if currentPrompt then
+            pcall(function()
+                if currentPrompt:IsA("ProximityPrompt") then
+                    if fireproximityprompt then fireproximityprompt(currentPrompt)
+                    else currentPrompt:InputHoldBegin(); task.wait(0.01); currentPrompt:InputHoldEnd() end
+                elseif currentPrompt:IsA("ClickDetector") then
+                    if fireclickdetector then fireclickdetector(currentPrompt) end
+                end
+            end)
+        end
+        pcall(function()
+            firetouchinterest(root, currentTarget, 0)
+            task.wait(0.01)
+            firetouchinterest(root, currentTarget, 1)
+        end)
+        task.wait(CANDY_TOUCH_WAIT)
+    end
+    if foundAnyCandy and root then
+        root.CFrame = originalPos
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        if _G.setStatus then _G.setStatus("Returned to Door", THEME.SUCCESS) end
+    end
+    return foundAnyCandy
+end
+
+-- ========== PINATA FINDER ==========
+local function findPinata()
+    local live = workspace:FindFirstChild("Live")
+    if not live then return nil end
+    local penyta = live:FindFirstChild("Penyta")
+    if not penyta then return nil end
+    local hrp = penyta:FindFirstChild("HumanoidRootPart") or penyta:FindFirstChildWhichIsA("BasePart")
+    return penyta, hrp
+end
+
+-- ========== PC SPOOF & SKILLS ==========
+local function spoofPC()
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+    end)
+end
+
+local skillThread = nil
+local function startSkillSpam()
+    if skillThread then return end
+    skillThread = task.spawn(function()
+        spoofPC()
+        task.wait(0.1)
+        while PINATA_ENABLED do
+            if isDead then task.wait(0.2); continue end
+            for i = 1, 4 do
+                if not PINATA_ENABLED then break end
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode[i], false, game)
+                    task.wait(0.02)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode[i], false, game)
+                end)
+                task.wait(0.03)
+            end
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+                task.wait(0.02)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+            end)
+            task.wait(0.05)
+        end
+        skillThread = nil
+    end)
+end
+local function stopSkillSpam()
+    if skillThread then task.cancel(skillThread); skillThread = nil end
+end
+
+-- ========== KNOCK ATTEMPT ==========
+local function tryKnock(prompt)
+    if not prompt then return false end
+    local ok, success = pcall(function()
+        if prompt:IsA("ProximityPrompt") then
+            if fireproximityprompt then
+                fireproximityprompt(prompt)
+                return true
+            else
+                prompt:InputHoldBegin()
+                task.wait(prompt.HoldDuration > 0 and prompt.HoldDuration or 0.3)
+                prompt:InputHoldEnd()
+                return true
+            end
+        end
+        return false
+    end)
+    return ok and success or false
+end
+
+-- ========== WAIT FOR DOOR CHANGE ==========
+local function waitForDoorChange(doorPart, doorPrompt, doorModel)
+    local startName = doorModel and doorModel.Name or (doorPart and doorPart.Name)
+    local startPromptObj = doorPrompt and doorPrompt.ObjectText or ""
+    local startAction = doorPrompt and doorPrompt.ActionText or ""
+    local startParent = doorPart and doorPart.Parent
+    local startTime = tick()
+    local maxWait = 5
+    while tick() - startTime < maxWait do
+        if not FARM_ENABLED or isDead or PINATA_ENABLED then break end
+        local gone = (not doorPart) or (not doorPart:IsDescendantOf(workspace))
+        local promptGone = (not doorPrompt) or (not doorPrompt:IsDescendantOf(workspace))
+        local modelRenamed = doorModel and doorModel.Parent and doorModel.Name ~= startName
+        local partReplaced = doorPart and doorPart.Parent ~= startParent
+        local promptChanged = doorPrompt and (doorPrompt.ObjectText ~= startPromptObj or doorPrompt.ActionText ~= startAction)
+        if gone or promptGone or modelRenamed or partReplaced or promptChanged then return true end
+        task.wait(0.1)
+    end
+    return false
+end
+
+-- ========== MAIN FARM LOOP ==========
+local farmThread = nil
+local function startFarm()
+    if farmThread then task.cancel(farmThread) end
+    setNoclip(true)
+    farmThread = task.spawn(function()
+        if _G.setStatus then _G.setStatus("Farming...", THEME.SUCCESS) end
+        local lastDoorPart = nil
+        while FARM_ENABLED or CANDY_ENABLED or PINATA_ENABLED do
+            task.wait(0.05)
+            if isDead then task.wait(1); continue end
+
+            if PINATA_ENABLED then
+                stopPlatformLock()
+                local penyta, hrp = findPinata()
+                if penyta and hrp then
+                    if FARM_ENABLED then FARM_ENABLED = false; toggleBtn.Text = "◉  AUTO FARM: OFF"; setButtonState(toggleBtn, false) end
+                    if CANDY_ENABLED then CANDY_ENABLED = false; candyBtn.Text = "◉  AUTO CANDY: OFF"; setButtonState(candyBtn, false) end
+                    clearAllChams()
+                    applyChams(penyta, 1, PINATA_CHAMS_COLOR)
+                    if _G.setStatus then _G.setStatus("Piñata! Attacking...", THEME.PINATA) end
+
+                    local belowCF = hrp.CFrame * CFrame.new(0, -PINATA_BELOW_DISTANCE, 0)
+                    instantTeleportTo(belowCF)
+                    startSkillSpam()
+
+                    while PINATA_ENABLED and not isDead do
+                        local p, h = findPinata()
+                        if not p or not h or not p:IsDescendantOf(workspace) then break end
+                        local char = LocalPlayer.Character
+                        local myHrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if myHrp then
+                            local target = h.Position - Vector3.new(0, PINATA_BELOW_DISTANCE, 0)
+                            myHrp.CFrame = CFrame.new(target, target + h.CFrame.LookVector)
+                            myHrp.AssemblyLinearVelocity = Vector3.zero
+                            myHrp.AssemblyAngularVelocity = Vector3.zero
+                        end
+                        local hp = "?"
+                        pcall(function()
+                            local hum = p:FindFirstChildOfClass("Humanoid")
+                            if hum then hp = math.floor(hum.Health) end
+                        end)
+                        if _G.setStatus then _G.setStatus("Piñata HP: " .. tostring(hp), THEME.PINATA) end
+                        task.wait(0.1)
+                    end
+
+                    stopSkillSpam()
+                    clearAllChams()
+                    if PINATA_ENABLED then
+                        if _G.setStatus then _G.setStatus("Piñata gone! Restoring...", THEME.SUCCESS) end
+                        FARM_ENABLED = true; toggleBtn.Text = "◉  AUTO FARM: ON"; setButtonState(toggleBtn, true)
+                        CANDY_ENABLED = true; candyBtn.Text = "◉  AUTO CANDY: ON"; setButtonState(candyBtn, true)
+                    end
+                else
+                    if _G.setStatus then _G.setStatus("Piñata: Waiting...", THEME.MUTED) end
+                end
+            end
+
+            if not PINATA_ENABLED or not findPinata() then
+                if CANDY_ENABLED then
+                    local _, _, candyCount = findCandyTarget()
+                    if candyCount > 0 then
+                        stopPlatformLock()
+                        if FARM_ENABLED then FARM_ENABLED = false; toggleBtn.Text = "◉  AUTO FARM: OFF"; setButtonState(toggleBtn, false) end
+                        if _G.setStatus then _G.setStatus("Candy Detected!", CANDY_CHAMS_COLOR) end
+                        collectAllCandy()
+                        if CANDY_ENABLED and not FARM_ENABLED and not PINATA_ENABLED then
+                            FARM_ENABLED = true; toggleBtn.Text = "◉  AUTO FARM: ON"; setButtonState(toggleBtn, true)
+                        end
+                    end
+                end
+
+                if FARM_ENABLED then
+                    if FARMING_MODE == "Tween" then
+                        local currentTarget, currentPrompt, currentModel = findDoorTarget()
+                        if currentTarget and currentPrompt then
+                            clearAllChams()
+                            applyChams(currentTarget, 1)
+                            applyChams(currentModel or currentTarget.Parent, 2)
+                            local doorGroundCFrame = currentTarget.CFrame * CFrame.new(0, 0, INTERACT_DISTANCE)
+                            local doorSkyCFrame = doorGroundCFrame * CFrame.new(0, AIR_HEIGHT, 0)
+                            if _G.setStatus then _G.setStatus("Door: " .. currentTarget.Name, THEME.SUCCESS) end
+                            forceTweenTo(doorSkyCFrame)
+                            forceTweenTo(doorGroundCFrame)
+                            if _G.setStatus then _G.setStatus("Trick or Treat!", THEME.SUCCESS) end
+                            tryKnock(currentPrompt)
+                            task.wait(WAIT_AT_DOOR)
+                            forceTweenTo(doorSkyCFrame)
+                            task.wait(COOLDOWN_DURATION)
+                        else
+                            if not CANDY_ENABLED and not PINATA_ENABLED then if _G.setStatus then _G.setStatus("No doors found", THEME.MUTED) end end
+                            task.wait(0.5)
+                        end
+                    else
+                        local targetPart, targetPrompt, targetModel = findFarthestDoorTarget(lastDoorPart)
+                        if targetPart and targetPrompt then
+                            stopPlatformLock()
+                            clearAllChams()
+                            applyChams(targetPart, 1, THEME.TP_MODE)
+                            applyChams(targetModel or targetPart.Parent, 2, THEME.TP_MODE)
+                            local doorGroundCFrame = targetPart.CFrame * CFrame.new(0, 0, INTERACT_DISTANCE)
+                            if _G.setStatus then _G.setStatus("TP: Farthest door", THEME.TP_MODE) end
+                            instantTeleportTo(doorGroundCFrame)
+                            task.wait(TP_STAY_AT_DOOR)
+                            if not FARM_ENABLED or isDead or PINATA_ENABLED then continue end
+
+                            if _G.setStatus then _G.setStatus("TP: Knocking...", THEME.TP_MODE) end
+                            local success = tryKnock(targetPrompt)
+                            lastDoorPart = targetPart
+
+                            if _G.setStatus then _G.setStatus("TP: Returning to platform", THEME.TP_MODE) end
+                            local platCF = getSkyPlatformCFrame()
+                            if platCF then
+                                instantTeleportTo(platCF)
+                                startPlatformLock(platCF)
+                            end
+
+                            if not success then
+                                if _G.setStatus then _G.setStatus("TP: Knock failed! Next door...", THEME.DANGER) end
+                                stopPlatformLock()
+                                task.wait(0.15)
+                                continue
+                            end
+
+                            if _G.setStatus then _G.setStatus("TP: Waiting for tree...", THEME.TP_MODE) end
+                            local changed = waitForDoorChange(targetPart, targetPrompt, targetModel)
+                            if not FARM_ENABLED or isDead or PINATA_ENABLED then stopPlatformLock(); continue end
+
+                            if not changed then
+                                if _G.setStatus then _G.setStatus("TP: No tree change! Next door...", THEME.DANGER) end
+                                stopPlatformLock()
+                                task.wait(0.15)
+                                continue
+                            end
+
+                            if _G.setStatus then _G.setStatus("TP: Waiting 2s...", THEME.TP_MODE) end
+                            task.wait(TP_POST_CHANGE_WAIT)
+                        else
+                            if not CANDY_ENABLED and not PINATA_ENABLED then if _G.setStatus then _G.setStatus("No doors found", THEME.MUTED) end end
+                            task.wait(0.5)
+                        end
+                    end
+                elseif CANDY_ENABLED and not PINATA_ENABLED then
+                    if _G.setStatus then _G.setStatus("Waiting for candy...", THEME.MUTED) end
+                    task.wait(0.5)
+                end
+            end
+        end
+        clearAllChams()
+        stopSkillSpam()
+        stopPlatformLock()
+        if _G.setStatus then _G.setStatus("Stopped", THEME.MUTED) end
+    end)
+end
+
+local function stopFarm()
+    FARM_ENABLED = false
+    CANDY_ENABLED = false
+    PINATA_ENABLED = false
+    stopPlatformLock()
+    clearAllChams()
+    stopSkillSpam()
+    removeSkyPlatform()
+    if currentTween then currentTween:Cancel(); currentTween = nil end
+    setNoclip(false)
+    if farmThread then task.cancel(farmThread); farmThread = nil end
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildWhichIsA("Humanoid")
+    if humanoid then
+        pcall(function() humanoid.PlatformStand = false; humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+    end
+    if _G.setStatus then _G.setStatus("Off", THEME.MUTED) end
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+    FARM_ENABLED = not FARM_ENABLED
+    toggleBtn.Text = "◉  AUTO FARM: " .. (FARM_ENABLED and "ON" or "OFF")
+    setButtonState(toggleBtn, FARM_ENABLED)
+    if FARM_ENABLED then
+        if FARMING_MODE == "Teleport" then ensureSkyPlatform() end
+        if not farmThread then startFarm() end
+    else
+        if not CANDY_ENABLED and not PINATA_ENABLED then stopFarm() end
+    end
+end)
+
+candyBtn.MouseButton1Click:Connect(function()
+    CANDY_ENABLED = not CANDY_ENABLED
+    candyBtn.Text = "◉  AUTO CANDY: " .. (CANDY_ENABLED and "ON" or "OFF")
+    setButtonState(candyBtn, CANDY_ENABLED)
+    if CANDY_ENABLED then
+        if not farmThread then startFarm() end
+    else
+        if not FARM_ENABLED and not PINATA_ENABLED then stopFarm() end
+    end
+end)
+
+pinataBtn.MouseButton1Click:Connect(function()
+    PINATA_ENABLED = not PINATA_ENABLED
+    pinataBtn.Text = "◉  AUTO PIÑATA: " .. (PINATA_ENABLED and "ON" or "OFF")
+    setButtonState(pinataBtn, PINATA_ENABLED)
+    if PINATA_ENABLED then
+        if not farmThread then startFarm() end
+    else
+        if not FARM_ENABLED and not CANDY_ENABLED then stopFarm() end
+    end
+end)
+
+print("🎃 Auto Farm v3 Loaded — Cool UI + Fast Candy Touch.")
